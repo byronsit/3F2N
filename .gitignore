@@ -1,0 +1,8 @@
+lib/*
+cmake-build-debug
+*.user
+build
+.vs
+.idea
+venv
+python_module_output

@@ -1,0 +1,156 @@
+cmake_minimum_required(VERSION 2.8.3)
+project(tftnp)
+#todo 用模块区分，不一定安装opencv模块或者python模块
+
+
+#回头去掉对一部分第三方库的依赖
+
+find_package(OpenCV REQUIRED)
+find_package(Boost COMPONENTS system thread program_options)
+
+
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_BUILD_TYPE Release)
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native -mfma -msse2 -msse3 -msse4")
+
+message("install path: ${CMAKE_INSTALL_PREFIX}")
+add_definitions(-std=c++17)
+add_definitions(-mfma)
+add_definitions(-mavx2)
+add_definitions(-mno-avx512f)
+add_definitions(-mno-avx512vl)
+add_definitions(-DUSE_SSE_AUTO)
+add_definitions(-DSSE_MATHFUN_WITH_CODE)
+set(CPU_ALL_OPTIMIZATIONS "SSE;SSE2;SSE3;SSSE3;SSE4_1;SSE4_2;POPCNT;AVX;FP16;AVX2;FMA3;AVX_512F;AVX512VL;AVX512F;AVX_512VL")
+
+#这里就不增加exrio的数据了
+#find_package(EXRIO REQUIRED)
+
+include_directories(
+        ${OpenCV_INCLUDE_DIRS}
+        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_SOURCE_DIR}/3rdparty/exrio/include
+)
+
+#add_executable(core ${CMAKE_SOURCE_DIR}/include/csne/core.cpp include/trad/easy_read.h)
+#target_link_libraries(core
+#        ${OpenCV_LIBS}
+#        ${EXRIO_LIBS}
+#        -lIlmImf        #OpenEXR用的
+#        )
+
+add_subdirectory(test)
+
+
+return ()
+#create static .a file.
+# 一个不错的cmake教程 https://blog.csdn.net/u012564117/article/details/95085360
+# 另一个不错的cmake教程 https://zhuanlan.zhihu.com/p/87738686
+file(GLOB ALL_HEADERS include/tftn/*.h)
+file(GLOB ALL_SOURCES include/*/*.cpp)
+#aux_source_directory(include/tftfn/ ALL_SOURCES )
+
+message("${BoldBlue}ALL_HEADERS: ${ColourReset}")
+message(${ALL_HEADERS})
+message(${BoldBlue}ALL_SOURCES: ${ColourReset})
+message(${ALL_SOURCES})
+
+
+
+#add_library(tftn_static STATIC include/tftn/tftn.cpp)
+add_library(tftn_static         STATIC   include/tftn/tftn.cpp )
+#add_library(tftn_readexr_static STATIC   include/tftn/readexr.cpp)
+
+#add_library(tftn_dynamic SHARED include/tftn/tftn.cpp) 这行好像不是我加的？是ide偷偷给我加的，不确定，先这么弄把
+
+add_library(tftn_readexr_dynamic SHARED include/utility/FastMath.hpp include/3rdmethod/3rd_algorithm.h)
+add_library(tftn_readexr_py SHARED   ) #正常还需要添加include/tftn/readexr.cpp
+#add_library(tftn_readexr_cv SHARED include/tftn/cv_readexr.cpp)
+#add_library(tftn_readexr SHARED include/tftn/readexr.cpp)
+
+SET_TARGET_PROPERTIES(tftn_static PROPERTIES OUTPUT_NAME "tftn") #modify the static file name
+SET_TARGET_PROPERTIES(tftn_dynamic PROPERTIES OUTPUT_NAME "tftn") #modify the static file name
+#SET_TARGET_PROPERTIES(tftn_readexr_static PROPERTIES OUTPUT_NAME "tftn_readexr") #modify the static file name
+SET_TARGET_PROPERTIES(tftn_readexr_dynamic PROPERTIES OUTPUT_NAME "tftn_readexr") #modify the static file name
+
+
+include_directories(
+        ${OpenCV_INCLUDE_DIRS}
+        ${PROJECT_NAME}
+        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_SOURCE_DIR}/ThirdParty
+        ${PYTHON_INCLUDE_DIR}
+        ${pybind11_INCLUDE_DIRS}
+)
+#add_dependencies(tftn_readexr_py tftn_readexr_dynamic )
+
+#add_subdirectory(pybind11)
+#链接第三方库的时候，要加上PRIVATE
+#pybind11_add_module(Pypcc ${PROJECT_SOURCE_DIR}/include/tftn/py_readexr.cpp)
+pybind11_add_module(readexr_py ${PROJECT_SOURCE_DIR}/pybind11/py_reader.cpp)
+
+add_dependencies(readexr_py PRIVATE tftn_readexr_dynamic )
+
+target_link_libraries(readexr_py
+        ${OpenCV_LIBS}
+        tftn_readexr_dynamic
+        -lIlmImf        #OpenEXR用的
+        )
+
+
+# https://blog.csdn.net/qq_38410730/article/details/102837401
+set(CMAKE_INSTALL_LIBDIR  ${CMAKE_INSTALL_PREFIX}/lib)
+set(CMAKE_INSTALL_INCLUDEDIR ${CMAKE_INSTALL_PREFIX}/include)
+
+message( "install library dir:"\n ${CMAKE_INSTALL_LIBDIR})
+message( "install include dir:"\n ${CMAKE_INSTALL_INCLUDEDIR}	)
+
+#export(EXPORT tftn NAMESPACE tftn:: FILE hahaha.cmake)
+#主要用于生成一个 TFTNTargets.cmake，用来给其他目录做子目录时候用。教程https://blog.csdn.net/weixin_30379531/article/details/98589931
+
+
+export(TARGETS  tftn_readexr_dynamic tftn_readexr_py  tftn_static  
+        APPEND FILE "${CMAKE_BINARY_DIR}/TFTNTargets.cmake"
+        )
+
+install(
+        TARGETS  tftn_readexr_dynamic tftn_readexr_py  tftn_static #tftn_dynamic
+        DESTINATION lib
+        EXPORT ${PROJECT_NAME} #不知道为啥这里只能是这个project_name
+) #安装静态链接库
+
+
+install (
+    TARGETS readexr_py 
+    LIBRARY DESTINATION ${CMAKE_SOURCE_DIR}/python_module_output )
+
+
+#install(FILES ${PROJECT_SOURCE_DIR}/include/tftn/tftn.h DESTINATION include)
+#安装头文件
+install(FILES ${ALL_HEADERS} DESTINATION include/${PROJECT_NAME})
+
+#安装tftn.cmake tftn-release.cmake
+install(EXPORT ${PROJECT_NAME} DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/cmake/tftn)
+
+
+
+#配置动态库
+configure_file(${CMAKE_SOURCE_DIR}/cmake/TFTNConfig.cmake.in ${PROJECT_BINARY_DIR}/TFTNConfig.cmake @ONLY)
+install(FILES ${PROJECT_BINARY_DIR}/TFTNConfig.cmake DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/tftn)
+
+message("!!"${CMAKE_CURRENT_LIST_FILE})
+
+
+#set(CMAKE_MODULE_PATH ${CMAKE_ROOT}/Modules)
+# https://zhuanlan.zhihu.com/p/422919663 CMake编写install export
+
+
+
+return()
+
+#debug用的代码
+get_cmake_property(_variableNames VARIABLES)
+foreach (_variableName ${_variableNames})
+    message(STATUS "${_variableName}=${${_variableName}}")
+endforeach()
+
